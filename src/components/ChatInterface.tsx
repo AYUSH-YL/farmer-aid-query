@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
-import { Send, Camera, Upload, Loader2 } from 'lucide-react';
+import { Send, Loader2, Mic, MicOff } from 'lucide-react';
 import MessageBubble from './MessageBubble';
 import ImageUpload from './ImageUpload';
 import { toast } from 'sonner';
@@ -28,8 +28,8 @@ const ChatInterface = () => {
   const [inputText, setInputText] = useState('');
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -55,6 +55,48 @@ const ChatInterface = () => {
     ];
     
     return responses[Math.floor(Math.random() * responses.length)];
+  };
+
+  const handleVoiceToText = () => {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      toast.error('Voice recognition is not supported in your browser');
+      return;
+    }
+
+    if (isListening) {
+      setIsListening(false);
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => {
+      setIsListening(true);
+      toast.success('Listening... Speak now!');
+    };
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      setInputText(prev => prev + (prev ? ' ' : '') + transcript);
+      setIsListening(false);
+      toast.success('Voice input captured!');
+    };
+
+    recognition.onerror = (event) => {
+      setIsListening(false);
+      toast.error('Voice recognition error: ' + event.error);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.start();
   };
 
   const handleSubmit = async () => {
@@ -154,6 +196,25 @@ const ChatInterface = () => {
               <ImageUpload onImageUpload={setUploadedImage} />
               
               <Button
+                type="button"
+                variant="outline"
+                onClick={handleVoiceToText}
+                className={`border-green-300 text-green-700 hover:bg-green-50 px-4 py-3 h-auto ${
+                  isListening ? 'bg-green-100 border-green-500' : ''
+                }`}
+                disabled={isLoading}
+              >
+                {isListening ? (
+                  <MicOff className="h-4 w-4 mr-2 animate-pulse" />
+                ) : (
+                  <Mic className="h-4 w-4 mr-2" />
+                )}
+                <span className="hidden sm:inline">
+                  {isListening ? 'Stop' : 'Voice'}
+                </span>
+              </Button>
+              
+              <Button
                 onClick={handleSubmit}
                 disabled={isLoading || (!inputText.trim() && !uploadedImage)}
                 size="lg"
@@ -172,7 +233,7 @@ const ChatInterface = () => {
           </div>
           
           <p className="text-sm text-green-600 mt-2 text-center">
-            💡 Tip: Upload clear photos of your crops for better diagnosis
+            💡 Tip: Upload clear photos of your crops for better diagnosis or use voice input
           </p>
         </div>
       </div>
