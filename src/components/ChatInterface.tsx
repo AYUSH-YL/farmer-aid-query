@@ -37,6 +37,8 @@ const ChatInterface = () => {
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+  const [pendingResponses, setPendingResponses] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -46,6 +48,37 @@ const ChatInterface = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Set up webhook response listener
+  useEffect(() => {
+    const handleWebhookResponse = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      
+      if (event.data.type === 'WEBHOOK_RESPONSE' && event.data.sessionId === sessionId) {
+        const { messageId, response } = event.data;
+        
+        if (pendingResponses.has(messageId)) {
+          const aiResponse: Message = {
+            id: `ai_${Date.now()}`,
+            text: response || "I'm sorry, I couldn't process your request at the moment. Please try again.",
+            isUser: false,
+            timestamp: new Date()
+          };
+          
+          setMessages(prev => [...prev, aiResponse]);
+          setPendingResponses(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(messageId);
+            return newSet;
+          });
+          setIsLoading(false);
+        }
+      }
+    };
+
+    window.addEventListener('message', handleWebhookResponse);
+    return () => window.removeEventListener('message', handleWebhookResponse);
+  }, [sessionId, pendingResponses]);
 
   const generateFarmingResponse = (query: string, hasImage: boolean): string => {
     const responses = [
@@ -107,13 +140,15 @@ const ChatInterface = () => {
     recognition.start();
   };
 
-  const sendToWebhook = async (question: string, photo?: string) => {
+  const sendToWebhook = async (question: string, photo?: string, messageId?: string) => {
     const webhookUrl = 'https://lucifer2z.app.n8n.cloud/webhook-test/fc359f00-306c-4c56-a6c0-d578d68c1ce5';
     
     try {
       const payload = {
         question: question,
         photo: photo || null,
+        sessionId: sessionId,
+        messageId: messageId,
         timestamp: new Date().toISOString(),
         source: 'Farm Friend AI'
       };
@@ -130,11 +165,65 @@ const ChatInterface = () => {
 
       if (response.ok) {
         console.log('Successfully sent to webhook');
+        
+        // If n8n doesn't respond within 10 seconds, show fallback response
+        setTimeout(() => {
+          if (messageId && pendingResponses.has(messageId)) {
+            const fallbackResponse: Message = {
+              id: `fallback_${Date.now()}`,
+              text: generateFarmingResponse(question, !!photo),
+              isUser: false,
+              timestamp: new Date()
+            };
+            
+            setMessages(prev => [...prev, fallbackResponse]);
+            setPendingResponses(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(messageId);
+              return newSet;
+            });
+            setIsLoading(false);
+          }
+        }, 10000);
       } else {
         console.error('Webhook response error:', response.status);
+        // Show fallback response immediately if webhook fails
+        if (messageId) {
+          const fallbackResponse: Message = {
+            id: `error_${Date.now()}`,
+            text: generateFarmingResponse(question, !!photo),
+            isUser: false,
+            timestamp: new Date()
+          };
+          
+          setMessages(prev => [...prev, fallbackResponse]);
+          setPendingResponses(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(messageId);
+            return newSet;
+          });
+          setIsLoading(false);
+        }
       }
     } catch (error) {
       console.error('Error sending to webhook:', error);
+      // Show fallback response on error
+      if (messageId) {
+        const fallbackResponse: Message = {
+          id: `error_${Date.now()}`,
+          text: generateFarmingResponse(question, !!photo),
+          isUser: false,
+          timestamp: new Date()
+        };
+        
+        setMessages(prev => [...prev, fallbackResponse]);
+        setPendingResponses(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(messageId);
+          return newSet;
+        });
+        setIsLoading(false);
+      }
     }
   };
 
@@ -144,8 +233,9 @@ const ChatInterface = () => {
       return;
     }
 
+    const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const userMessage: Message = {
-      id: Date.now().toString(),
+      id: messageId,
       text: inputText || (uploadedImage ? 'I uploaded an image of my crop. Can you help?' : ''),
       isUser: true,
       image: uploadedImage || undefined,
@@ -153,26 +243,14 @@ const ChatInterface = () => {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    setPendingResponses(prev => new Set([...prev, messageId]));
     
     // Send to webhook
-    await sendToWebhook(userMessage.text, uploadedImage || undefined);
+    await sendToWebhook(userMessage.text, uploadedImage || undefined, messageId);
     
     setInputText('');
     setUploadedImage(null);
     setIsLoading(true);
-
-    // Simulate AI processing time
-    setTimeout(() => {
-      const aiResponse: Message = {
-        id: (Date.now() + 1).toString(),
-        text: generateFarmingResponse(inputText, !!uploadedImage),
-        isUser: false,
-        timestamp: new Date()
-      };
-      
-      setMessages(prev => [...prev, aiResponse]);
-      setIsLoading(false);
-    }, 2000 + Math.random() * 1000);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -277,6 +355,7 @@ const ChatInterface = () => {
           
           <p className="text-sm text-green-600 mt-2 text-center">
             💡 Tip: Upload clear photos of your crops for better diagnosis or use voice input
+            {sessionId && <span className="block text-xs opacity-60">Session: {sessionId}</span>}
           </p>
         </div>
       </div>
