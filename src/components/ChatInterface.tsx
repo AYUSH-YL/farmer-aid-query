@@ -8,6 +8,14 @@ import MessageBubble from './MessageBubble';
 import ImageUpload from './ImageUpload';
 import { toast } from 'sonner';
 
+// Extend Window interface for speech recognition
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+  }
+}
+
 interface Message {
   id: string;
   text: string;
@@ -20,7 +28,7 @@ const ChatInterface = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      text: "Hello! 👋 I'm your Farm Helper AI. Ask me anything about farming, crops, diseases, or upload a photo of your plants for diagnosis!",
+      text: "Hello! 👋 I'm your Farm Friend AI. Ask me anything about farming, crops, diseases, or upload a photo of your plants for diagnosis!",
       isUser: false,
       timestamp: new Date()
     }
@@ -80,14 +88,14 @@ const ChatInterface = () => {
       toast.success('Listening... Speak now!');
     };
 
-    recognition.onresult = (event) => {
+    recognition.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript;
       setInputText(prev => prev + (prev ? ' ' : '') + transcript);
       setIsListening(false);
       toast.success('Voice input captured!');
     };
 
-    recognition.onerror = (event) => {
+    recognition.onerror = (event: any) => {
       setIsListening(false);
       toast.error('Voice recognition error: ' + event.error);
     };
@@ -97,6 +105,37 @@ const ChatInterface = () => {
     };
 
     recognition.start();
+  };
+
+  const sendToWebhook = async (question: string, photo?: string) => {
+    const webhookUrl = 'https://lucifer2z.app.n8n.cloud/webhook-test/fc359f00-306c-4c56-a6c0-d578d68c1ce5';
+    
+    try {
+      const payload = {
+        question: question,
+        photo: photo || null,
+        timestamp: new Date().toISOString(),
+        source: 'Farm Friend AI'
+      };
+
+      console.log('Sending to webhook:', payload);
+
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (response.ok) {
+        console.log('Successfully sent to webhook');
+      } else {
+        console.error('Webhook response error:', response.status);
+      }
+    } catch (error) {
+      console.error('Error sending to webhook:', error);
+    }
   };
 
   const handleSubmit = async () => {
@@ -114,6 +153,10 @@ const ChatInterface = () => {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    
+    // Send to webhook
+    await sendToWebhook(userMessage.text, uploadedImage || undefined);
+    
     setInputText('');
     setUploadedImage(null);
     setIsLoading(true);

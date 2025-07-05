@@ -50,7 +50,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
             <div className="w-6 h-6 bg-green-600 rounded-full flex items-center justify-center text-white text-xs font-bold">
               🌾
             </div>
-            <span className="ml-2 text-xs text-green-700 font-medium">Farm Helper AI</span>
+            <span className="ml-2 text-xs text-green-700 font-medium">Farm Friend AI</span>
           </div>
         )}
       </div>
